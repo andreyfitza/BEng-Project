@@ -1,0 +1,118 @@
+#Bluetooth Client
+#Andrei Fita
+#30/01/2015
+#Wireless Communication for Low Power Sensor Nodes
+#We call client the SLAVE
+
+import bluetooth
+import sys
+import threading
+import json         #used to serialise the data
+import time
+from Queue import *
+
+uuid="fa87c0d0-afac-11de-8a39-0800200c9a66"
+addr= None
+#addr = "00:1A:7D:DA:71:13" #Bluetooth address of the Reciever
+#uuid="1e0ca4ea-299d-4335-93eb-27fcfe7fa848" #-- FooBar Service
+#uuid="1101"
+data=["00:1A:7D:DA:71:13", "Hai hai"]
+sender_queue=Queue()
+
+if len (sys.argv) < 2:
+    print "No device specified. Searching all nearby bluetooth devices for"
+    print "the BluetoothChat service"
+else:
+    addr = sys.argv[1]
+    print "Searching for BluetoothChat on %s" % addr
+
+#Search for the service
+service_matches=bluetooth.find_service(uuid=uuid, address=addr)
+
+if len(service_matches) == 0:
+    print ("could not find the service")
+    sys.exit(0)
+    
+first_match = service_matches [0]
+port= first_match["port"] #Communication Port
+name= first_match["name"] #Name of the Server
+host= first_match["host"] #Address of the server
+
+print ("connecting to \"%s\" on %s on port number %d" % (name, host, port))
+
+#Create the client socket
+sock=bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+#Connect to the client socket
+sock.connect((host,port))
+class update_queue(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+    def run(self):
+        while True:
+            self.data_in=raw_input("Type-in data to send \n")
+            if (len(self.data_in)>0):
+                sender_queue.put(self.data_in)
+                print("Data added to the queue")
+                
+    
+class recieveThread(threading.Thread):
+    
+    
+    def __init__(self, sock):
+        threading.Thread.__init__(self)
+        self.sock=sock
+
+    def run(self):
+        while True:
+            self.recieve_data()
+            
+    def recieve_data(self):
+        b=b''
+        
+        self.recieved_item_ns=self.sock.recv(1024)
+        b+=self.recieved_item_ns
+        self.recieved_item=json.loads(b.decode('utf-8'))
+        print (host, self.recieved_item)
+        
+  
+class senderThread(threading.Thread):
+    def __init__(self, sock):
+        threading.Thread.__init__(self)
+        self.sock=sock
+        self.destination = "00:1A:7D:DA:71:13"       #Needs to be set as the destination address
+        self.data=None              #Data to send
+        self.item_to_send=None      #the list containing the data
+        
+    def code_queue(self):
+        self.data=sender_queue.get()
+        self.item_to_send=(self.destination, self.data)
+        
+    
+    def send_data(self):
+        self.code_queue()
+        print(self.destination)
+        self.data2=json.dumps(self.item_to_send).encode('utf-8')
+        sock.send(self.data2)
+        print "sent" 
+    
+    def run(self):
+        try:
+            while True:
+                self.send_data()
+        except IOError:
+            pass
+
+qu=update_queue()
+qu.setDaemon(True)
+qu.start()
+sender=senderThread(sock)
+reciever=recieveThread(sock)
+reciever.setDaemon(True)
+sender.setDaemon(True)
+reciever.start()
+sender.start()
+
+print "connected- type in"
+
+while True:
+ar=True
